@@ -86,10 +86,10 @@ fitModel <- function(.data, x=NULL,y,.newdata=NULL,level="mean",regression="qrf"
 
   .model <- switch(regression,
                    "qrf"=quantregForest::quantregForest(x=X,y=Y,nthread=8,keep.inbag = FALSE,ntree=ntree),
-                   "rf"=randomForest::randomForest(Y ~ ., data=DATA,importance=FALSE,proximity=FALSE,ntree=ntree),
-                   "lm"=stats::lm(Y ~ ., data=DATA),
+                   "rf"=randomForest::randomForest(x=X,y=Y,importance=FALSE,proximity=FALSE,ntree=ntree),
+                   "lm"=stats::lm(formula = as.formula(paste("Y~", paste(XCOLS, collapse = "+"))), data = DATA[,mget(XCOLS)]),
                    # "knn" = kknn::train.kknn(formula = as.formula(paste(y, "~", paste(XCOLS, collapse = "+"))), data = DATA, k = k)
-                   "knn" = kknn::train.kknn(formula = as.formula(paste("Y~", paste(XCOLS, collapse = "+"))), data = DATA, kmax = k)
+                   "knn" = kknn::train.kknn(formula = as.formula(paste("Y~", paste(XCOLS, collapse = "+"))), data = DATA[,mget(XCOLS)], kmax = k)
 
 
 
@@ -97,13 +97,7 @@ fitModel <- function(.data, x=NULL,y,.newdata=NULL,level="mean",regression="qrf"
 
   if(is.null(.newdata)){
     # .newdata==NULL: build model. Return model
-    if(level=="mean"){
-      Yp <- predict(.model,newdata=DATA, what = mean) |> unname()
-    } else {
-      Yp <- predict(.model,newdata=DATA, what = level) |> unname()
-    }
-
-
+    Yp <- predict(.model,newdata=DATA[,mget(XCOLS)],what=mean)
     RSS <- (Y - Yp) %*% (Y - Yp) |> as.double()
     MSE <- RSS / length(Y) # caret::MSE(Yp,Y)
     RMSE <- sqrt(MSE) # caret::RMSE(Yp,Y)
@@ -128,6 +122,9 @@ fitModel <- function(.data, x=NULL,y,.newdata=NULL,level="mean",regression="qrf"
 
     }
 
+    if (regression == "rf") {
+      VALUE <- predict(.model, newdata = .newdata)
+    }
     if(regression=="qrf"){
       if(level=="mean"){
         VALUE <- predict(.model,newdata=.newdata, what = mean)
@@ -142,7 +139,7 @@ fitModel <- function(.data, x=NULL,y,.newdata=NULL,level="mean",regression="qrf"
         sample_indices <- sample(1:nrow(DATA), replace = TRUE)
         bootstrap_data <- DATA[sample_indices, ]
         knn_model <- kknn::train.kknn(formula = as.formula(paste(y, "~", paste(XCOLS, collapse = "+"))), data = bootstrap_data, kmax = k)
-        predict(knn_model, newdata = .newdata)$fit
+        predict(knn_model, newdata = .newdata)
       })
 
       if(level == "mean") {
@@ -155,11 +152,4 @@ fitModel <- function(.data, x=NULL,y,.newdata=NULL,level="mean",regression="qrf"
     return(VALUE)
   }
 
-
-
-
-
-
-  # Return the filtered data.table
-  return()
 }
