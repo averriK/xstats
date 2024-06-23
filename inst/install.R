@@ -6,6 +6,8 @@ devtools::document()
 # devtools::build()
 devtools::check()
 remove.packages("xstats")
-devtools::install()
-
-
+# devtools::install()
+## push main
+remotes::install_github("averriK/xstats")
+# usethis::use_github()
+# usethis::use_github_action("R-CMD-check")
