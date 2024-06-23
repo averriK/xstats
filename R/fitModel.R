@@ -2,164 +2,140 @@
 #' Title
 #'
 #' @param .data data.table
-#' @param y character
+#' @param variables character
+#' @param response character
 #' @param .newdata vector
 #' @param level double.
 #' @param regression character
 #' @param removeZeroInstances logical
 #' @param uniqueResponses logical
-#' @param ntree integer
-#' @param x character
-#' @param n_bootstrap integer Number of bootstrap samples for KNN
-#' @param k integer Number of nearest neighbors for KNN
-
+#' @param cvmax integer
+#' @param nbmax integer
 #'
 #' @return vector
 #' @export fitModel
 #'
 #' @import data.table
-#' @import kknn
-#' @import quantregForest
-#' @import randomForest
+#' @import caret
 #' @import stats
 #'
 #' @examples
 #'
 #'
 
-# ********************************
-# Fix level for lm
-# remove rf. keep qrf only
-# set default level to 0.16,0.50,0.84
-
-
-fitModel <- function(.data, x=NULL,y,.newdata=NULL,level="mean",regression="qrf",removeZeroInstances=FALSE,uniqueResponses=FALSE,ntree=500,n_bootstrap=100,k=5) {
+fitModel <- function(.data, variables=NULL,response,.newdata=NULL,level="mean",regression="qrf",removeZeroInstances=FALSE,uniqueResponses=FALSE,cvmax=10,nbmax=100) {
   on.exit(expr = {    rm(list = ls())  }, add = TRUE)
-  .  <- .SD <- NULL
+  .  <- .SD <- rowIndex <- pred <- NULL
   # Capture the variable arguments as a vector
-  stopifnot(y %in% names(.data))
+  stopifnot(response %in% names(.data))
   stopifnot(length(level)==1)
-  stopifnot(!is.null(x)||!is.null(.newdata))
-  if(!is.null(x)) {
-    # .newdata==NULL: build model. Return model. ignore .newdata
-    VARS <- x
-    XCOLS <- VARS[VARS %in% names(.data)]
+
+
+
+  if(!is.null(variables) & is.null(.newdata)) {
+    PREDICT <- FALSE
+    TRAIN <- TRUE
+    # variables <- variables
   }
 
-  if(!is.null(.newdata)){
-    # .newdata!=NULL: build model, predict new data, return response, ignore .x
-    VARS <- names(.newdata)
-    XCOLS <- VARS[VARS %in% names(.data)]
+  if(!is.null(.newdata) & is.null(variables)){
+    PREDICT <- TRUE
+    TRAIN <- FALSE
+    variables <- names(.newdata)
   }
+
+  if(is.null(variables) & is.null(.newdata)){
+    # Performance Mode. Taking all variables as independents
+    PREDICT <- FALSE
+    TRAIN <- TRUE
+    variables <- colnames(.data)[!colnames(.data) %in% response]
+  }
+
+  if(!is.null(variables) & !is.null(.newdata)){
+    # Performance Mode. Taking only variables as independents
+    PREDICT <- TRUE
+    TRAIN <- FALSE
+    .newdata <- .newdata[,mget(variables)]
+  }
+  if(TRAIN==TRUE){
+    trControl <- trainControl(method = "cv", number = cvmax)
+    tuneGrid <- switch(
+      regression,
+      "qrf"=expand.grid(mtry = 2:3),
+      "rf"=expand.grid(mtry = 2:3),
+      "lm"=NULL,
+      "glm"=NULL,
+      "glmStepAIC"=NULL,
+      "kknn"=expand.grid(kmax = 3:7, distance = 1:2,kernel="optimal")
+
+    )
+
+  } else {
+    trControl <- trainControl(
+      method = "boot",  # bootstrap resampling
+      number = nbmax,  # number of bootstrap samples
+      savePredictions = "final"  # save the predictions for each resample
+    )
+    tuneGrid <- NULL
+  }
+
   # Subset the data to include only valid columns
   # Check and keep only those columns that are present in the data.table
 
-  # COLS <- VARS[VARS %in% names(.data)]
+  # X.name <- VARS[VARS %in% names(.data)]
 
-  YCOL <- y
-  COLS <- c(XCOLS, YCOL)
-  #remmove N/A
-
-  # DATA <- .data[, ..COLS, with = FALSE] |> na.omit() |> unique()
-  DATA <- .data[, COLS, with = FALSE] |> na.omit() |> unique()
+  COLS <- c(variables, response)
+  .data <- .data[, COLS, with = FALSE] |> na.omit() |> unique()
 
   # Remove duplicated responses
   if(uniqueResponses){
-    idx <- !duplicated(DATA[[YCOL]])
-    DATA <- DATA[idx]
+    idx <- !duplicated(.data[[response]])
+    .data <- .data[idx]
   }
   # Remove instances with Zero values
   if(removeZeroInstances){
-    idx <- DATA[,apply(.SD, 1, function(x) all(x > 0)),.SDcols = XCOLS]
-    DATA <- DATA[idx]
+    idx <- .data[,apply(.SD, 1, function(x) all(x > 0)),.SDcols = variables]
+    .data <- .data[idx]
   }
 
-  # Average responses with identical instances
-  DATA <- DATA[, .(Y = mean(get(YCOL))), by = mget(XCOLS)]
+  # DATA <- DATA[, .(Y = mean(get(response))), by = mget(X.name)]
 
-  if(nrow(DATA) == 0) {
+  if(nrow(.data) == 0) {
     stop("No valid data found")
   }
-  # X <- DATA[, ..XCOLS, with = FALSE]
-  X <- DATA[, XCOLS, with = FALSE]
-  Y <- DATA$Y
+  X <- .data[, mget(variables)]
+  Y <- .data[,get(response)] #.data[[response]]
+  .data <- cbind(Y, X)
 
-  .model <- switch(regression,
-                   "qrf"=quantregForest::quantregForest(x=X,y=Y,nthread=8,keep.inbag = FALSE,ntree=ntree),
-                   "rf"=randomForest::randomForest(Y ~ ., data=DATA,importance=FALSE,proximity=FALSE,ntree=ntree),
-                   "lm"=stats::lm(Y ~ ., data=DATA),
-                   # "knn" = kknn::train.kknn(formula = as.formula(paste(y, "~", paste(XCOLS, collapse = "+"))), data = DATA, k = k)
-                   "knn" = kknn::train.kknn(formula = as.formula(paste("Y~", paste(XCOLS, collapse = "+"))), data = DATA, kmax = k)
+  .model <- caret::train(
+    x=X,y=Y,method=regression,
+    trControl = trControl,
+    tuneGrid = tuneGrid)
 
 
-
-  )
-
-  if(is.null(.newdata)){
-    # .newdata==NULL: build model. Return model
-    if(level=="mean"){
-      Yp <- predict(.model,newdata=DATA, what = mean) |> unname()
-    } else {
-      Yp <- predict(.model,newdata=DATA, what = level) |> unname()
-    }
-
-
+  if(TRAIN==TRUE){
+    # Performance
+    Yp <- predict(.model,newdata=X) |> as.vector()
     RSS <- (Y - Yp) %*% (Y - Yp) |> as.double()
     MSE <- RSS / length(Y) # caret::MSE(Yp,Y)
     RMSE <- sqrt(MSE) # caret::RMSE(Yp,Y)
     muY <- mean(Y)
     TSS <- (Y-muY )%*%(Y-muY )|> as.double()
     R2 <-  1-RSS/TSS #caret::R2(Yp,Y)
+    FIT <- list(model=.model,variables=variables,response=response,data=.data, Yp=Yp,RSS=RSS,MSE=MSE, RMSE=RMSE, R2=R2)
 
 
-    return(list(model=.model,data=DATA, RSS=RSS, MSE=MSE, RMSE=RMSE, R2=R2))
+    return(FIT)
+  } else {
+    # Resampled Predictions
+    RPDT <- .model$pred |> as.data.table()
+    Yp <- sapply(1:nrow(.newdata), function(i) {
+      Yp.samples <- RPDT[rowIndex == i, pred]
+      ifelse(level=="mean", mean(Yp.samples), quantile(Yp.samples, probs = level))
+    })
+
+    return(Yp)
   }
 
-  if(!is.null(.newdata) ){
-    # .newdata!=NULL: build model, predict new data, return response
-    if(regression=="lm"){
-      if(level=="mean"){
-        VALUE <- (predict(.model,newdata=.newdata,interval = "prediction",what=0.95)) |> as.data.table()
-        VALUE <- VALUE$fit
-      } else {
-        VALUE <- (predict(.model,newdata=.newdata,interval = "prediction",what=level)) |> as.data.table()
-        VALUE <- VALUE$upr
-      }
-
-    }
-
-    if(regression=="qrf"){
-      if(level=="mean"){
-        VALUE <- predict(.model,newdata=.newdata, what = mean)
-      } else {
-        VALUE <- predict(.model,newdata=.newdata, what = level)
-      }
-
-    }
-
-    if (regression == "knn") {
-      bootstrap_preds <- replicate(n_bootstrap, {
-        sample_indices <- sample(1:nrow(DATA), replace = TRUE)
-        bootstrap_data <- DATA[sample_indices, ]
-        knn_model <- kknn::train.kknn(formula = as.formula(paste(y, "~", paste(XCOLS, collapse = "+"))), data = bootstrap_data, kmax = k)
-        predict(knn_model, newdata = .newdata)$fit
-      })
-
-      if(level == "mean") {
-        VALUE <- rowMeans(bootstrap_preds)
-      } else {
-        VALUE <- apply(bootstrap_preds, 1, function(x) quantile(x, probs = as.numeric(level)))
-      }
-    }
-
-    return(VALUE)
-  }
-
-
-
-
-
-
-  # Return the filtered data.table
-  return()
 }
+

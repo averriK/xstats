@@ -12,7 +12,5 @@ LazyData: true
 Imports:
     data.table,
     stats,
-    randomForest,
-    quantregForest,
-    kknn
+    caret
 RoxygenNote: 7.3.1

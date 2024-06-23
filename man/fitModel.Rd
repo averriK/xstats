@@ -6,24 +6,23 @@
 \usage{
 fitModel(
   .data,
-  x = NULL,
-  y,
+  variables = NULL,
+  response,
   .newdata = NULL,
   level = "mean",
   regression = "qrf",
   removeZeroInstances = FALSE,
   uniqueResponses = FALSE,
-  ntree = 500,
-  n_bootstrap = 100,
-  k = 5
+  cvmax = 10,
+  nbmax = 100
 )
 }
 \arguments{
 \item{.data}{data.table}
 
-\item{x}{character}
+\item{variables}{character}
 
-\item{y}{character}
+\item{response}{character}
 
 \item{.newdata}{vector}
 
@@ -35,11 +34,9 @@ fitModel(
 
 \item{uniqueResponses}{logical}
 
-\item{ntree}{integer}
+\item{cvmax}{integer}
 
-\item{n_bootstrap}{integer Number of bootstrap samples for KNN}
-
-\item{k}{integer Number of nearest neighbors for KNN}
+\item{nbmax}{integer}
 }
 \value{
 vector
