@@ -6,6 +6,7 @@ devtools::document()
 # devtools::build()
 devtools::check()
 remove.packages("xstats")
-devtools::install()
-
+# devtools::install()
+## push main
+# usethis::use_github()
 
